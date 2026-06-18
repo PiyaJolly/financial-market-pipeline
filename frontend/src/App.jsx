@@ -1,20 +1,54 @@
 import { useState, useEffect, useMemo } from "react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Search, TrendingUp, TrendingDown, Activity, Zap, Database, AlertCircle, Loader2 } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Activity, Zap, Database, AlertCircle, Loader2, Moon } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "http://localhost:8000";
 
-async function fetchMarket(symbol) {
-  const res = await fetch(`${API_BASE}/api/market/${symbol}`);
-  if (!res.ok) {
-    let detail = "Could not load data. Please try again.";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Fetches market data. On the free hosting tier the backend sleeps after
+// inactivity, so the first request can fail or hang while it wakes up. We
+// retry those transient failures (signalling onWaking) but surface genuine
+// application errors (rate limit, invalid symbol) immediately.
+async function fetchMarket(symbol, onWaking) {
+  const maxAttempts = 10;
+  const delayMs = 5000;
+  let lastErr = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    let res;
     try {
-      const body = await res.json();
-      if (body.detail && typeof body.detail === "string") detail = body.detail;
+      res = await fetch(`${API_BASE}/api/market/${symbol}`);
+    } catch (e) {
+      // Network error: server is likely waking up
+      if (onWaking) onWaking();
+      lastErr = new Error("Could not reach the server.");
+      await sleep(delayMs);
+      continue;
+    }
+
+    if (res.ok) {
+      return await res.json();
+    }
+
+    // Try to read a structured error from our own API
+    let body = null;
+    try {
+      body = await res.json();
     } catch (e) {}
-    throw new Error(detail);
+
+    if (body && typeof body.detail === "string") {
+      // Genuine application error (rate limit, invalid symbol): do not retry
+      throw new Error(body.detail);
+    }
+
+    // Unstructured response (e.g. a cold-start gateway page): treat as waking
+    if (onWaking) onWaking();
+    lastErr = new Error("Server is starting up.");
+    await sleep(delayMs);
   }
-  return res.json();
+
+  throw lastErr || new Error("Could not load data. Please try again.");
 }
 
 const fmtPrice = (n) => "$" + n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -55,6 +89,7 @@ export default function MarketDashboard() {
   const [input, setInput] = useState("");
   const [rangeDays, setRangeDays] = useState(90);
   const [loading, setLoading] = useState(true);
+  const [waking, setWaking] = useState(false);
   const [error, setError] = useState(null);
   const [fullData, setFullData] = useState([]);
   const [cached, setCached] = useState(false);
@@ -63,7 +98,11 @@ export default function MarketDashboard() {
     let active = true;
     setLoading(true);
     setError(null);
-    fetchMarket(symbol)
+    setWaking(false);
+
+    fetchMarket(symbol, () => {
+      if (active) setWaking(true);
+    })
       .then((res) => {
         if (!active) return;
         setFullData(res.points || []);
@@ -75,8 +114,12 @@ export default function MarketDashboard() {
         setFullData([]);
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          setWaking(false);
+        }
       });
+
     return () => {
       active = false;
     };
@@ -118,7 +161,7 @@ export default function MarketDashboard() {
               <p className="text-xs text-slate-500">Live daily equities data</p>
             </div>
           </div>
-          {!error && (
+          {!error && !loading && (
             <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-medium border ${cached ? "border-amber-500/30 bg-amber-500/5 text-amber-300" : "border-emerald-500/30 bg-emerald-500/5 text-emerald-300"}`}>
               {cached ? <Database size={13} /> : <Zap size={13} />}
               {cached ? "Served from cache" : "Fresh from API"}
@@ -169,6 +212,20 @@ export default function MarketDashboard() {
           </div>
         </div>
 
+        {/* Waking-up notice (free-tier cold start) */}
+        {loading && waking && (
+          <div className="bg-cyan-500/5 border border-cyan-500/30 rounded-2xl p-6 flex items-start gap-3 mb-6">
+            <Moon className="text-cyan-400 mt-0.5 shrink-0" size={20} />
+            <div>
+              <p className="font-medium text-cyan-200 mb-1 flex items-center gap-2">
+                Waking the server up
+                <Loader2 className="animate-spin" size={14} />
+              </p>
+              <p className="text-sm text-slate-400">The backend runs on a free tier that sleeps after inactivity, so the first request can take up to a minute. Hang tight, this only happens on the first load.</p>
+            </div>
+          </div>
+        )}
+
         {/* Error state */}
         {error && (
           <div className="bg-rose-500/5 border border-rose-500/30 rounded-2xl p-6 flex items-start gap-3 mb-6">
@@ -200,8 +257,8 @@ export default function MarketDashboard() {
           </div>
         )}
 
-        {/* Loading skeleton (first load) */}
-        {loading && !data.length && !error && (
+        {/* Loading skeleton (first load, before waking notice kicks in) */}
+        {loading && !waking && !data.length && !error && (
           <div className="bg-slate-900/40 border border-slate-800 rounded-2xl p-6 mb-6 h-[300px] flex items-center justify-center">
             <Loader2 className="text-slate-600 animate-spin" size={28} />
           </div>
