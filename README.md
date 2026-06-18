@@ -2,7 +2,14 @@
 
 A full-stack application that ingests daily equities data, transforms it, caches it, and serves it through a rate-limited REST API to a React dashboard. Built as a portfolio project to demonstrate end-to-end software engineering: a clean backend service, a typed API, automated tests, and a polished, state-aware frontend.
 
-Status: in progress.
+Status: live and deployed.
+
+## Links
+
+- **Live dashboard**: https://financial-market-pipeline.vercel.app
+- **Live API docs**: https://financial-market-pipeline.onrender.com/docs
+
+The backend runs on a free tier that sleeps after inactivity, so the first request after a quiet period can take up to a minute to wake the service. The dashboard shows a notice while this happens. The data provider's free tier also caps daily requests, so once the quota is reached the API returns a clear rate-limit message by design.
 
 ## Overview
 
@@ -90,4 +97,3 @@ The data provider's free tier allows a limited number of requests per day across
 - Add a CI workflow to run the test suite on every push
 - Support intraday intervals and multiple data providers behind the same interface
 - Add a comparison mode to chart two tickers at once
-- Bundle a small sample dataset as a fallback so the live demo always renders a chart even when the free API quota is exhausted
