@@ -90,3 +90,4 @@ The data provider's free tier allows a limited number of requests per day across
 - Add a CI workflow to run the test suite on every push
 - Support intraday intervals and multiple data providers behind the same interface
 - Add a comparison mode to chart two tickers at once
+- Bundle a small sample dataset as a fallback so the live demo always renders a chart even when the free API quota is exhausted
